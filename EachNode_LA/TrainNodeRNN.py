@@ -70,7 +70,6 @@ def RNNPrediction(numEvents, Temp, Wind, Events, Holiday, Time, TimeEachDay):
     sequence_length2 = numWeek*7*TimeEachDay + 1
     matrix = ConvertSeriesToMatrix(numEvents, Temp, Wind, Events, Holiday, Time, sequence_length1, sequence_length2, numWeek, numDay, TimeEachDay)
     matrix = np.asarray(matrix)
-    np.savetxt('Matrix.csv', matrix, delimiter = ',', fmt = '%f')
     
     #Split dataset: 80% for training and 20% for testing
     train_row = int(round(0.8*matrix.shape[0]))
@@ -102,7 +101,7 @@ def RNNPrediction(numEvents, Temp, Wind, Events, Holiday, Time, TimeEachDay):
     model.compile(loss = "mse", optimizer = "adam")
     
     #Training the model
-    model.fit(x_train, y_train, batch_size = 128, nb_epoch = 1, validation_split = 0.2, verbose = 1)
+    model.fit(x_train, y_train, batch_size = 128, nb_epoch = 500, validation_split = 0.2, verbose = 1)
 
     #save the model
     model_json = model.to_json()
@@ -138,8 +137,8 @@ if __name__ == '__main__':
     TimeEachDay = 24
     
     #Events
-    df1 = pd.read_csv('data.csv', header = None)
-    numEvents = df1.iloc[:, FLAGS.train_n-1]
+    df1 = pd.read_csv('EventsZip3.csv', header = None)
+    numEvents = df1.iloc[:,0]
     print('numEvents Size: ', numEvents.shape)
     numEvents = np.asarray(numEvents)
     numEvents2 = np.zeros(ndays*TimeEachDay)	#cdf of the events
@@ -148,11 +147,14 @@ if __name__ == '__main__':
     	     numEvents2[i] = numEvents[i]
     	else:
     	     numEvents2[i] = numEvents[i]+numEvents2[i-1]
+    numEvents3 = np.genfromtxt('EventsZip3_CS.csv')
     #numEvents3 = img_enlarge(numEvents2, factor = 2.0, order = 2)	#Superresolve
-    x = np.arange(1,numEvents2.shape[0]+1)
-    xx = np.arange(0.5,numEvents2.shape[0]+0.1,0.5)
-    cs = scipy.interpolate.CubicSpline(x, numEvents2)
-    numEvents3 = cs(xx)
+    #x = np.arange(1,numEvents2.shape[0]+1)
+    #xx = np.arange(1,numEvents2.shape[0]+0.1,0.5)
+    #cs = scipy.interpolate.interp1d(x, numEvents2,kind = 'cubic')
+    #numEvents3 = cs(xx)
+    #numEvents3 = np.insert(numEvents3, 0, numEvents3[0], axis = 0)
+    #np.savetxt('cs.csv',numEvents3)
     print('numEvents3 size: ', len(numEvents3))
         
     #Weather features

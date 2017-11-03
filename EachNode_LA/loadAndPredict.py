@@ -95,9 +95,8 @@ if __name__ == '__main__':
     TimeEachDay = 24
     
     #Events
-    df1 = pd.read_csv('data.csv', header = None)
-    numEvents = df1.iloc[:, FLAGS.test_n-1]
-    print '1st day of test data: ', numEvents[0:24]
+    df1 = pd.read_csv('EventsZip3.csv', header = None)
+    numEvents = df1.iloc[:, 0]
     print('numEvents Size: ', numEvents.shape)
     numEvents = np.asarray(numEvents)
     numEvents2 = np.zeros(ndays*TimeEachDay)	#cdf of the events
@@ -107,8 +106,7 @@ if __name__ == '__main__':
     	else:
     	     numEvents2[i] = numEvents[i]+numEvents2[i-1]
     np.savetxt('Results_Test/testCum{0}.csv'.format(FLAGS.test_n), numEvents2)
-    numEvents3 = img_enlarge(numEvents2, factor = 2.0, order = 2)	#Superresolve
-    print('numEvents3 size: ', len(numEvents3))
+    numEvents3 = np.genfromtxt('EventsZip3_CS.csv')
         
     #Weather features
     df2 = pd.read_csv('weather_holiday_Enlarged.csv', header = None)
