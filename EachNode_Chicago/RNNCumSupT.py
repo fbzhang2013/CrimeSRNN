@@ -15,19 +15,9 @@ import pandas as pd
 from keras.layers.core import Dense, Activation, Dropout
 from keras.layers.recurrent import LSTM
 from keras.models import Sequential
-from keras import optimizers
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import mean_squared_error
-import argparse
-from scipy.interpolate import interp1d
 
-
-parser = argparse.ArgumentParser()
-
-parser.add_argument('--train_n', type=int, default=3,
-                    help='index of node, [1,96]')
-
-FLAGS = parser.parse_args()
 #Resize the image
 def img_enlarge(img, factor = 2.0, order = 2):
     return scipy.ndimage.zoom(img, factor, order = order)
@@ -37,26 +27,26 @@ def ConvertSeriesToMatrix(numEvents, Temp, Wind, Events, Holiday, Time, len1, le
     matrix = []
     #We need to discard the data 0 ~ len2-1
     for i in range(len(numEvents) - len2):
-    	tmp = []			#(feature, label) at the time slot i + len2
-    	tmp.append(Temp[i+len2])	#Temperature
-    	tmp.append(Wind[i+len2])	#Wind speed
-    	tmp.append(Events[i+len2])	#Events
-    	tmp.append(Holiday[i+len2])	#Holiday
-    	tmp.append(Time[i+len2])	#Time
-    	
-    	#Weekly dependence
-    	for j in range(numWeek):
-    	    tmp.append(numEvents[i+len2-(j+1)*7*TimeEachDay])
-    	#Daily dependence
-    	for j in range(numDay):
-    	    tmp.append(numEvents[i+len2-(j+1)*TimeEachDay])
-    	#Hourly dependence
-    	for j in range(i+len2-len1, i+len2-1):	#Note: Skip the closest one, due to superresolve
-    	    tmp.append(numEvents[j])
-    	
-    	#Label
-    	tmp.append(numEvents[i+len2])
-        matrix.append(tmp)
+	tmp = []			#(feature, label) at the time slot i + len2
+	tmp.append(Temp[i+len2])	#Temperature
+	tmp.append(Wind[i+len2])	#Wind speed
+	tmp.append(Events[i+len2])	#Events
+	tmp.append(Holiday[i+len2])	#Holiday
+	tmp.append(Time[i+len2])	#Time
+	
+	#Weekly dependence
+	for j in range(numWeek):
+	    tmp.append(numEvents[i+len2-(j+1)*7*TimeEachDay])
+	#Daily dependence
+	for j in range(numDay):
+	    tmp.append(numEvents[i+len2-(j+1)*TimeEachDay])
+	#Hourly dependence
+	for j in range(i+len2-len1, i+len2-1):	#Note: Skip the closest one, due to superresolve
+	    tmp.append(numEvents[j])
+	
+	#Label
+	tmp.append(numEvents[i+len2])
+	matrix.append(tmp)
     return matrix
 
 #RNN predictor
@@ -64,13 +54,15 @@ def RNNPrediction(numEvents, Temp, Wind, Events, Holiday, Time, TimeEachDay):
     #Normalize data to (0, 1)
     scaler1 = MinMaxScaler(feature_range = (0, 1))
     numEvents = scaler1.fit_transform(numEvents)
-
+    
     #Dependence
     numWeek = 3; numDay = 3; numHour = TimeEachDay
     sequence_length1 = numHour + 1
     sequence_length2 = numWeek*7*TimeEachDay + 1
     matrix = ConvertSeriesToMatrix(numEvents, Temp, Wind, Events, Holiday, Time, sequence_length1, sequence_length2, numWeek, numDay, TimeEachDay)
     matrix = np.asarray(matrix)
+    print('Matrix shape: ', matrix.shape)
+    np.savetxt('Matrix.csv', matrix, delimiter = ',', fmt = '%f')
     
     #Split dataset: 80% for training and 20% for testing
     train_row = int(round(0.8*matrix.shape[0]))
@@ -99,21 +91,11 @@ def RNNPrediction(numEvents, Temp, Wind, Events, Holiday, Time, TimeEachDay):
     model.add(Dropout(0.2))
     #Layer4: fully connected
     model.add(Dense(output_dim = 1, activation = 'sigmoid'))
-    #model.compile(loss = "mse", optimizer = "adam")
-    adam = optimizers.Adam(lr=0.0004, beta_1=0.9, beta_2=0.999, epsilon=1e-08, decay=0.0)
-    model.compile(loss = "mse", optimizer = adam)
+    model.compile(loss = "mse", optimizer = "adam")
     
     #Training the model
-    model.fit(x_train, y_train, batch_size = 128, nb_epoch = 200, validation_split = 0.2, verbose = 1)
-
-    #save the model
-    model_json = model.to_json()
-    with open("Saved_models/model{0}.json".format(FLAGS.train_n), "w") as json_file:
-        json_file.write(model_json)
-    # serialize weights to HDF5
-    model.save_weights("Saved_models/model{0}.h5".format(FLAGS.train_n))
-    print("Saved model to disk")
-
+    model.fit(x_train, y_train, batch_size = 128, nb_epoch = 500, validation_split = 0.2, verbose = 1)
+    
     #Prediction
     trainPredict = model.predict(x_train)
     testPredict = model.predict(x_test)
@@ -132,37 +114,32 @@ def RNNPrediction(numEvents, Temp, Wind, Events, Holiday, Time, TimeEachDay):
     testScore = math.sqrt(mean_squared_error(test, testPredict))
     testScore2 = np.average(test-testPredict)
     print('Test Score: %.2f RMSE' % (testScore))
-    np.savetxt('testPredict.csv',testPredict)
     print train.shape, test.shape
-        
+    
+    return [train, trainPredict, test, testPredict]
+
+
 #The main function
 if __name__ == '__main__':
-    ndays = 730
+    ndays = 365
     TimeEachDay = 24
     
     #Events
-    df1 = pd.read_csv('EventsZip3.csv', header = None)
-    numEvents = df1.iloc[:,0]
+    df1 = pd.read_csv('EventsZip48.csv', header = None)
+    numEvents = df1.iloc[:, 0]
     print('numEvents Size: ', numEvents.shape)
     numEvents = np.asarray(numEvents)
     numEvents2 = np.zeros(ndays*TimeEachDay)	#cdf of the events
     for i in range(len(numEvents)):
-    	if i%24 == 0:
-    	     numEvents2[i] = numEvents[i]
-    	else:
-    	     numEvents2[i] = numEvents[i]+numEvents2[i-1]
-    numEvents3 = np.genfromtxt('EventsZip3_CS.csv')
-    #numEvents3 = img_enlarge(numEvents2, factor = 2.0, order = 2)	#Superresolve
-    #x = np.arange(1,numEvents2.shape[0]+1)
-    #xx = np.arange(1,numEvents2.shape[0]+0.1,0.5)
-    #cs = scipy.interpolate.interp1d(x, numEvents2,kind = 'cubic')
-    #numEvents3 = cs(xx)
-    #numEvents3 = np.insert(numEvents3, 0, numEvents3[0], axis = 0)
-    #np.savetxt('cs.csv',numEvents3)
+	if i%24 == 0:
+	     numEvents2[i] = numEvents[i]
+	else:
+	     numEvents2[i] = numEvents[i]+numEvents2[i-1]
+    numEvents3 = img_enlarge(numEvents2, factor = 2.0, order = 2)	#Superresolve
     print('numEvents3 size: ', len(numEvents3))
-        
+    
     #Weather features
-    df2 = pd.read_csv('weather_holiday_Enlarged.csv', header = None)
+    df2 = pd.read_csv('ExternalFeatures.csv', header = None)
     Temp = df2.iloc[:, 0]
     Wind = df2.iloc[:, 1]
     Events = df2.iloc[:, 2]
@@ -175,11 +152,11 @@ if __name__ == '__main__':
     Holiday2 = np.zeros(ndays*TimeEachDay*2)
     Time2 = np.zeros(ndays*TimeEachDay*2)
     for i in range(ndays*TimeEachDay):
-    	Temp2[i*2] = Temp[i]; Temp2[i*2+1] = Temp[i]
-    	Wind2[i*2] = Wind[i]; Wind2[i*2+1] = Wind[i]
-    	Events2[i*2] = Events[i]; Events2[i*2+1] = Events[i]
-    	Holiday2[i*2] = Holiday[i]; Holiday2[i*2+1] = Holiday[i]
-    	Time2[i*2] = Time[i]; Time2[i*2+1] = Time[i]
+	Temp2[i*2] = Temp[i]; Temp2[i*2+1] = Temp[i]
+	Wind2[i*2] = Wind[i]; Wind2[i*2+1] = Wind[i]
+	Events2[i*2] = Events[i]; Events2[i*2+1] = Events[i]
+	Holiday2[i*2] = Holiday[i]; Holiday2[i*2+1] = Holiday[i]
+	Time2[i*2] = Time[i]; Time2[i*2+1] = Time[i]
     print('External feature dimensions: ', len(Temp2), len(Wind2), len(Events2), len(Holiday2), len(Time2))
     
     numEvents3 = numEvents3.astype('float32')
@@ -190,6 +167,21 @@ if __name__ == '__main__':
     Time2 = np.asarray(Time2); Time2 = Time2.astype('float32')
     
     TimeEachDay *= 2	#Superresolve
-
-    #train, and save the model
     res = RNNPrediction(numEvents3, Temp2, Wind2, Events2, Holiday2, Time2, TimeEachDay)
+    
+    train = res[0]
+    np.savetxt('TrainSupT.csv', train)
+    train = img_enlarge(train, factor = 0.5, order = 2)
+    trainPredict = res[1]
+    np.savetxt('TrainPredictSupT.csv', trainPredict)
+    trainPredict = img_enlarge(trainPredict, factor = 0.5, order = 2)
+    test = res[2]
+    np.savetxt('TestSupT.csv', test)
+    test = img_enlarge(test, factor = 0.5, order = 2)
+    testPredict = res[3]
+    np.savetxt('TestPredictSupT.csv', testPredict)
+    testPredict = img_enlarge(testPredict, factor = 0.5, order = 2)
+    np.savetxt('Train.csv', train)
+    np.savetxt('TrainPredict.csv', trainPredict)
+    np.savetxt('Test.csv', test)
+    np.savetxt('TestPredict.csv', testPredict)
